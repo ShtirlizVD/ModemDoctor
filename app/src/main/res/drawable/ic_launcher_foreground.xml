@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Background circle -->
+    <path
+        android:fillColor="#0097A7"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0"/>
+    <!-- Signal bars -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M30,60 L38,60 L38,70 L30,70 Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M42,50 L50,50 L50,70 L42,70 Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,40 L62,40 L62,70 L54,70 Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M66,30 L74,30 L74,70 L66,70 Z"/>
+    <!-- Antenna icon -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,20 L58,28 L50,28 Z"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:strokeWidth="2"
+        android:strokeColor="#FFFFFF"
+        android:pathData="M54,28 L54,38"/>
+</vector>
