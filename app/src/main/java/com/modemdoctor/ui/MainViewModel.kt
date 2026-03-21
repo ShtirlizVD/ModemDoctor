@@ -64,6 +64,13 @@ class MainViewModel : ViewModel() {
     private val _ultra3GStatus = MutableStateFlow<String?>(null)
     val ultra3GStatus: StateFlow<String?> = _ultra3GStatus.asStateFlow()
     
+    // Battery charge limit
+    private val _chargeLimitEnabled = MutableStateFlow(false)
+    val chargeLimitEnabled: StateFlow<Boolean> = _chargeLimitEnabled.asStateFlow()
+    
+    private val _batteryMessage = MutableStateFlow<String?>(null)
+    val batteryMessage: StateFlow<String?> = _batteryMessage.asStateFlow()
+    
     sealed class UiState {
         object Initial : UiState()
         object CheckingRoot : UiState()
@@ -83,6 +90,47 @@ class MainViewModel : ViewModel() {
                 RootShell.checkRoot()
             }
             _uiState.value = UiState.Ready
+            
+            // Проверяем статус ограничения зарядки
+            checkChargeLimitStatus()
+        }
+    }
+    
+    /**
+     * Проверка статуса ограничения зарядки
+     */
+    fun checkChargeLimitStatus() {
+        viewModelScope.launch {
+            val (enabled, _) = withContext(Dispatchers.IO) {
+                RootShell.getChargeLimitStatus()
+            }
+            _chargeLimitEnabled.value = enabled
+        }
+    }
+    
+    /**
+     * Включение/выключение ограничения зарядки до 80%
+     */
+    fun toggleChargeLimit(enabled: Boolean) {
+        viewModelScope.launch {
+            _batteryMessage.value = if (enabled) "Включаем ограничение..." else "Отключаем ограничение..."
+            
+            val (success, message) = withContext(Dispatchers.IO) {
+                if (enabled) {
+                    RootShell.setChargeLimit80()
+                } else {
+                    RootShell.disableChargeLimit()
+                }
+            }
+            
+            if (success) {
+                _chargeLimitEnabled.value = enabled
+            }
+            _batteryMessage.value = message
+            
+            // Очищаем сообщение через 5 секунд
+            kotlinx.coroutines.delay(5000)
+            _batteryMessage.value = null
         }
     }
     

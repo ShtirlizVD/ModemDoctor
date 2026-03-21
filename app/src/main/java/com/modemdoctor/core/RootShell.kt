@@ -459,4 +459,141 @@ object RootShell {
             callback(result.first, result.second)
         }.start()
     }
+
+    // ============= BATTERY CHARGE LIMIT =============
+
+    /**
+     * Проверяет текущий статус ограничения зарядки
+     * @return Pair<enabled, limitPercent>
+     */
+    fun getChargeLimitStatus(): Pair<Boolean, Int> {
+        // Метод 1: Android 15+ Battery Charging State Controls
+        val (_, output1) = execute("settings get global battery_charging_state_controls")
+        if (output1.trim() == "1" || output1.trim() == "80") {
+            return Pair(true, 80)
+        }
+
+        // Метод 2: Adaptive Charging
+        val (_, output2) = execute("settings get global adaptive_charging_enabled")
+        if (output2.trim() == "1") {
+            return Pair(true, 80)
+        }
+
+        // Метод 3: sysfs (Samsung/Some devices)
+        val (_, output3) = execute("cat /sys/class/power_supply/battery/charge_control_limit 2>/dev/null")
+        val limit = output3.trim().toIntOrNull()
+        if (limit != null && limit in 60..100) {
+            return Pair(limit < 100, limit)
+        }
+
+        return Pair(false, 100)
+    }
+
+    /**
+     * Включает ограничение зарядки до 80%
+     */
+    fun setChargeLimit80(): Pair<Boolean, String> {
+        if (!checkRoot()) return Pair(false, "No root access")
+        
+        val results = mutableListOf<String>()
+        var success = false
+
+        // Метод 1: Android 15+ (Pixel)
+        val (exit1, _) = execute("settings put global battery_charging_state_controls 1")
+        if (exit1 == 0) {
+            results.add("✓ battery_charging_state_controls=1")
+            success = true
+        }
+
+        // Метод 2: Adaptive Charging (Android 12+)
+        val (exit2, _) = execute("settings put global adaptive_charging_enabled 1")
+        if (exit2 == 0) {
+            results.add("✓ adaptive_charging_enabled=1")
+            success = true
+        }
+
+        // Метод 3: Secure settings
+        val (exit3, _) = execute("settings put secure adaptive_charging_enabled 1")
+        if (exit3 == 0) {
+            results.add("✓ secure adaptive_charging=1")
+        }
+
+        // Метод 4: sysfs для Samsung/других
+        val sysfsPaths = listOf(
+            "/sys/class/power_supply/battery/charge_control_limit",
+            "/sys/class/power_supply/google,battery/charge_control_limit"
+        )
+
+        for (path in sysfsPaths) {
+            val (exit, out) = execute("if [ -f $path ]; then echo 80 > $path && echo OK; fi")
+            if (exit == 0 && out.contains("OK")) {
+                results.add("✓ sysfs: $path = 80")
+                success = true
+            }
+        }
+
+        // Метод 5: Pixel vendor property
+        val (exit5, _) = execute("setprop persist.vendor.charger.limit 80")
+        if (exit5 == 0) {
+            results.add("✓ vendor.charger.limit=80")
+        }
+
+        return if (success) {
+            Pair(true, "Ограничение до 80% включено:\n${results.joinToString("\n")}")
+        } else {
+            Pair(false, "Не удалось включить:\n${results.joinToString("\n")}")
+        }
+    }
+
+    /**
+     * Отключает ограничение зарядки (100%)
+     */
+    fun disableChargeLimit(): Pair<Boolean, String> {
+        if (!checkRoot()) return Pair(false, "No root access")
+        
+        val results = mutableListOf<String>()
+        var success = false
+
+        val (exit1, _) = execute("settings put global battery_charging_state_controls 0")
+        if (exit1 == 0) {
+            results.add("✓ battery_charging_state_controls=0")
+            success = true
+        }
+
+        val (exit2, _) = execute("settings put global adaptive_charging_enabled 0")
+        if (exit2 == 0) {
+            results.add("✓ adaptive_charging_enabled=0")
+            success = true
+        }
+
+        val (exit3, _) = execute("settings put secure adaptive_charging_enabled 0")
+        if (exit3 == 0) {
+            results.add("✓ secure adaptive_charging=0")
+        }
+
+        // sysfs - вернуть 100%
+        val sysfsPaths = listOf(
+            "/sys/class/power_supply/battery/charge_control_limit",
+            "/sys/class/power_supply/google,battery/charge_control_limit"
+        )
+
+        for (path in sysfsPaths) {
+            val (exit, out) = execute("if [ -f $path ]; then echo 100 > $path && echo OK; fi")
+            if (exit == 0 && out.contains("OK")) {
+                results.add("✓ sysfs: $path = 100")
+                success = true
+            }
+        }
+
+        val (exit5, _) = execute("setprop persist.vendor.charger.limit 100")
+        if (exit5 == 0) {
+            results.add("✓ vendor.charger.limit=100")
+        }
+
+        return if (success) {
+            Pair(true, "Зарядка до 100%:\n${results.joinToString("\n")}")
+        } else {
+            Pair(false, "Не удалось отключить:\n${results.joinToString("\n")}")
+        }
+    }
 }

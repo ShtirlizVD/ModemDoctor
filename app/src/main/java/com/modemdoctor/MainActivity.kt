@@ -67,6 +67,8 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     val disable5GStatus by viewModel.disable5GStatus.collectAsState()
     val volteStatus by viewModel.volteStatus.collectAsState()
     val ultra3GStatus by viewModel.ultra3GStatus.collectAsState()
+    val chargeLimitEnabled by viewModel.chargeLimitEnabled.collectAsState()
+    val batteryMessage by viewModel.batteryMessage.collectAsState()
     
     var showTokenDialog by remember { mutableStateOf(false) }
     var tokenInput by remember { mutableStateOf("") }
@@ -139,6 +141,77 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         null -> Color(0xFFFFC107)
                     }
                 )
+            }
+            
+            // Battery Protection Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (chargeLimitEnabled) 
+                            Color(0xFFE8F5E9) 
+                        else 
+                            MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.BatteryStd,
+                                    contentDescription = null,
+                                    tint = if (chargeLimitEnabled) Color(0xFF4CAF50) else Color(0xFF9E9E9E),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        "Защита батареи",
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "Зарядка до 80%",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                            
+                            Switch(
+                                checked = chargeLimitEnabled,
+                                onCheckedChange = { enabled ->
+                                    viewModel.toggleChargeLimit(enabled)
+                                },
+                                enabled = hasRoot == true
+                            )
+                        }
+                        
+                        if (batteryMessage != null) {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                batteryMessage!!,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (batteryMessage!!.contains("✓") || batteryMessage!!.contains("включено")) 
+                                    Color(0xFF4CAF50) 
+                                else 
+                                    MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "Продлевает срок службы аккумулятора, ограничивая максимальный уровень заряда.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
             
             // GitHub Token Card
