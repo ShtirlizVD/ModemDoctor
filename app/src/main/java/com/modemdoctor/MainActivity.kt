@@ -292,7 +292,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         if (logProgress > 0 && logProgress < 1) {
                             Spacer(Modifier.height(8.dp))
                             LinearProgressIndicator(
-                                progress = { logProgress },
+                                progress = logProgress,
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
