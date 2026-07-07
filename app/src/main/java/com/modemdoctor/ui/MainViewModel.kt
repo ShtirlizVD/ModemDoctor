@@ -277,83 +277,156 @@ class MainViewModel : ViewModel() {
      */
     fun enableVoWiFi() {
         viewModelScope.launch(Dispatchers.IO) {
-            _vowifiStatus.value = "Включаем VoWiFi принудительно..."
+            _vowifiStatus.value = "Включаем VoWiFi принудительно...\nСобираем информацию..."
             
-            // Получаем MCC+MNC SIM карты для проверки оператора
+            // Получаем MCC+MNC SIM карты
             val (_, simInfo) = RootShell.execute("getprop gsm.sim.operator.numeric")
             val simOperator = simInfo.trim()
             
+            // Получаем subscription id
+            val (_, subIdOut) = RootShell.execute("dumpsys isub | grep 'id=' | head -1")
+            val subIdMatch = Regex("id=(\\d+)").find(subIdOut)
+            val subId = subIdMatch?.groupValues?.get(1) ?: "1"
+            
+            // Получаем carrier_id
+            val (_, carrierIdOut) = RootShell.execute("cmd phone get-carrier-id 2>/dev/null || echo 'unknown'")
+            val carrierId = carrierIdOut.trim()
+            
+            _vowifiStatus.value = "Включаем VoWiFi...\nSIM: $simOperator\nSubId: $subId\nCarrier: $carrierId\n"
+            
             val commands = listOf(
-                // WFC availability override - самое важное!
+                // === 1. WFC availability override - самое важное для Pixel ===
                 "resetprop -p persist.dbg.wfc_avail_ovr 1",
                 "resetprop -p persist.dbg.wfc_allow_over_cellular 1",
+                "resetprop -p persist.dbg.volte_avail_ovr 1",
+                "resetprop -p persist.dbg.vt_avail_ovr 1",
                 
-                // Vendor radio свойства
+                // === 2. Vendor radio свойства ===
                 "resetprop -p persist.vendor.radio.wfc_enabled 1",
                 "resetprop -p persist.vendor.radio.wfc_support 1",
+                "resetprop -p persist.vendor.radio.wfc_mode 1",
+                "resetprop -p persist.vendor.radio.sib16_support 1",
                 
-                // IMS свойства
+                // === 3. IMS свойства ===
                 "resetprop -p persist.vendor.ims.wfc_enabled 1",
                 "resetprop -p persist.vendor.ims.volte_enabled 1",
                 "resetprop -p persist.vendor.ims.vt_enabled 1",
                 "resetprop -p persist.vendor.ims.rcs_enabled 1",
+                "resetprop -p persist.vendor.ims.disable_user_config 0",
                 
-                // Глобальные настройки
+                // === 4. Settings global ===
                 "settings put global wfc_ims_enabled 1",
                 "settings put global wfc_ims_mode 1",  // 1 = Wi-Fi preferred
                 "settings put global wfc_ims_roaming_enabled 1",
-                
-                // VoLTE must be enabled for VoWiFi
                 "settings put global volte_ims_enabled 1",
                 "settings put global vt_ims_enabled 1",
                 
-                // Carrier config overrides
-                "settings put global carrier_config carrier_wfc_ims_available_bool true",
-                "settings put global carrier_config wfc_mode_support_v2 3", // 3 = both modes
+                // === 5. Carrier config override через cmd phone (Pixel-specific) ===
+                // Этот метод реально работает на Pixel, в отличие от settings put
+                "cmd phone set-carrier-config $subId carrier_wfc_ims_available_bool true",
+                "cmd phone set-carrier-config $subId carrier_volte_available_bool true",
+                "cmd phone set-carrier-config $subId carrier_vt_available_bool true",
+                "cmd phone set-carrier-config $subId wfc_mode_support_v2 3",
+                "cmd phone set-carrier-config $subId carrier_wfc_spn_format_rule_int 0",
+                "cmd phone set-carrier-config $subId wfc_data_migration_enabled_bool true",
+                "cmd phone set-carrier-config $subId wfc_emergency_address_override_enabled_bool true",
+                "cmd phone set-carrier-config $subId carrier_name_wfc_pref_string wifi",
                 
-                // Дополнительно для Pixel
-                "resetprop -p persist.dbg.volte_avail_ovr 1",
-                "resetprop -p persist.dbg.vt_avail_ovr 1",
+                // === 6. Прямое редактирование carrier_config XML ===
+                // Backup оригинальных файлов
+                "mkdir -p /data/local/tmp/wfc_backup 2>/dev/null",
+                "cp /data/user_de/0/com.android.phone/files/carrier_config_*.xml /data/local/tmp/wfc_backup/ 2>/dev/null",
                 
-                // Перезапуск telephony (мягкий, без перезагрузки)
-                "am broadcast -a com.android.internal.telephony.PROVISIONED",
-                "killall -HUP com.android.phone 2>/dev/null || true"
+                // === 7. Форсирование обновления carrier_config ===
+                "am broadcast -a com.android.internal.telephony.CARRIER_SIGNAL_RESET",
+                "cmd phone reload-carrier-config $subId 2>/dev/null || true",
+                
+                // === 8. Перезапуск IMS сервиса ===
+                "am force-stop com.android.ims.rcsservice 2>/dev/null || true",
+                "am force-stop org.codeaurora.ims 2>/dev/null || true",
+                
+                // === 9. Дополнительно для Samsung Exynos модема ===
+                "resetprop -p persist.vendor.radio.custom_ecc 1",
+                "resetprop -p persist.vendor.radio.add_power_save 0",
+                "resetprop -p persist.vendor.radio.data_con_rdx 1"
             )
             
             val (exitCode, output) = RootShell.execute(commands)
             
+            // Теперь airplane mode toggle для перерегистрации сети
+            _vowifiStatus.value = (_vowifiStatus.value + "\nПерезапуск радиомодуля...")
+            
+            Thread.sleep(2000)
+            
+            // Мягкий restart telephony через airplane mode
+            val restartCommands = listOf(
+                "cmd connectivity airplane-mode enable",
+                "sleep 3",
+                "cmd connectivity airplane-mode disable"
+            )
+            RootShell.execute(restartCommands)
+            
+            Thread.sleep(3000)
+            
             // Проверяем результат
             val verifyCommands = listOf(
+                "echo '=== WFC PROPERTIES ==='",
                 "getprop persist.dbg.wfc_avail_ovr",
                 "getprop persist.vendor.radio.wfc_enabled",
                 "getprop persist.vendor.ims.wfc_enabled",
+                "getprop persist.dbg.volte_avail_ovr",
+                "echo '=== SETTINGS ==='",
                 "settings get global wfc_ims_enabled",
-                "settings get global wfc_ims_mode"
+                "settings get global wfc_ims_mode",
+                "settings get global volte_ims_enabled",
+                "echo '=== CARRIER CONFIG ==='",
+                "cmd phone get-carrier-config $subId 2>/dev/null | grep -iE 'wfc|wifi_calling|volte' | head -20",
+                "echo '=== IMS STATUS ==='",
+                "dumpsys imsphone | grep -iE 'wfc|volte|ims|registered' | head -15",
+                "echo '=== SIM INFO ==='",
+                "getprop gsm.sim.operator.numeric",
+                "getprop gsm.sim.operator.alpha",
+                "echo '=== SERVICE STATE ==='",
+                "dumpsys telephony.registry | grep -E 'mServiceState|isImsRegistered' | head -10"
             )
             val (_, verify) = RootShell.execute(verifyCommands)
             
             _vowifiStatus.value = buildString {
                 appendLine("=== ПРИМЕНЕНО ===")
                 appendLine("SIM оператор: $simOperator")
+                appendLine("SubId: $subId")
+                appendLine("Carrier: $carrierId")
                 appendLine()
                 appendLine("=== ТЕКУЩИЕ ЗНАЧЕНИЯ ===")
                 appendLine(verify)
                 appendLine()
                 appendLine("=== РЕКОМЕНДАЦИЯ ===")
                 if (simOperator.isNotEmpty()) {
-                    appendLine("SIM: $simOperator")
+                    appendLine("SIM: $simOperator (${simOperator.take(3)})")
                     when (simOperator.take(3)) {
-                        "250" -> appendLine("Россия: МТС/Мегафон/Билайн/Tele2")
+                        "250" -> {
+                            appendLine("Россия:")
+                            when (simOperator.substring(3)) {
+                                "01" -> appendLine("  МТС - VoWiFi поддерживается")
+                                "02" -> appendLine("  Мегафон - VoWiFi поддерживается")
+                                "99" -> appendLine("  Билайн - VoWiFi поддерживается")
+                                "20" -> appendLine("  Tele2 - VoWiFi не везде")
+                                else -> appendLine("  Оператор: ${simOperator.substring(3)}")
+                            }
+                        }
                         "255" -> appendLine("Украина")
                         "257" -> appendLine("Беларусь")
                         else -> appendLine("MCC: ${simOperator.take(3)}")
                     }
                 }
                 appendLine()
-                appendLine("⚠️ Требуется перезагрузка!")
-                appendLine("После перезагрузки проверьте:")
-                appendLine("  Settings → Network → Wi-Fi Calling")
-                appendLine("  *#*#4636#*#* → Phone info → IMS status")
+                appendLine("⚠️ Если НЕ работает:")
+                appendLine("1. Перезагрузите телефон полностью")
+                appendLine("2. Проверьте: *#*#4636#*#* → Phone info")
+                appendLine("   IMS Registered: true")
+                appendLine("3. Settings → Network → Wi-Fi Calling")
+                appendLine("4. Если IMS=false - проблема в модеме")
+                appendLine("   (возможно не лечится на Pixel 6A)")
             }
             
             _vowifiEnabled.value = true
