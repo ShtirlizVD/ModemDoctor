@@ -63,12 +63,8 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
     val lastGistUrl by viewModel.lastGistUrl.collectAsState()
     val events by viewModel.events.collectAsState()
     val networkLossCount by viewModel.networkLossCount.collectAsState()
-    val autoUploadStatus by viewModel.autoUploadStatus.collectAsState()
-    val disable5GStatus by viewModel.disable5GStatus.collectAsState()
-    val volteStatus by viewModel.volteStatus.collectAsState()
-    val ultra3GStatus by viewModel.ultra3GStatus.collectAsState()
-    val chargeLimitEnabled by viewModel.chargeLimitEnabled.collectAsState()
-    val batteryMessage by viewModel.batteryMessage.collectAsState()
+    val vowifiStatus by viewModel.vowifiStatus.collectAsState()
+    val vowifiEnabled by viewModel.vowifiEnabled.collectAsState()
     
     var showTokenDialog by remember { mutableStateOf(false) }
     var tokenInput by remember { mutableStateOf("") }
@@ -141,77 +137,6 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         null -> Color(0xFFFFC107)
                     }
                 )
-            }
-            
-            // Battery Protection Card
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = if (chargeLimitEnabled) 
-                            Color(0xFFE8F5E9) 
-                        else 
-                            MaterialTheme.colorScheme.surfaceVariant
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Default.BatteryStd,
-                                    contentDescription = null,
-                                    tint = if (chargeLimitEnabled) Color(0xFF4CAF50) else Color(0xFF9E9E9E),
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Spacer(Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        "Защита батареи",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        "Зарядка до 80%",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                            
-                            Switch(
-                                checked = chargeLimitEnabled,
-                                onCheckedChange = { enabled ->
-                                    viewModel.toggleChargeLimit(enabled)
-                                },
-                                enabled = hasRoot == true
-                            )
-                        }
-                        
-                        if (batteryMessage != null) {
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                batteryMessage!!,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (batteryMessage!!.contains("✓") || batteryMessage!!.contains("включено")) 
-                                    Color(0xFF4CAF50) 
-                                else 
-                                    MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                        
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            "Продлевает срок службы аккумулятора, ограничивая максимальный уровень заряда.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
             }
             
             // GitHub Token Card
@@ -297,19 +222,6 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                             Spacer(Modifier.height(8.dp))
                         }
                         
-                        autoUploadStatus?.let { status ->
-                            Text(
-                                "Auto-upload: $status",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (status.contains("SUCCESS") || status.contains("Uploaded:")) 
-                                    Color(0xFF4CAF50) 
-                                else if (status.contains("Error") || status.contains("failed")) 
-                                    Color(0xFFF44336) 
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Spacer(Modifier.height(8.dp))
-                        }
-                        
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -380,7 +292,7 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                         if (logProgress > 0 && logProgress < 1) {
                             Spacer(Modifier.height(8.dp))
                             LinearProgressIndicator(
-                                progress = logProgress,
+                                progress = { logProgress },
                                 modifier = Modifier.fillMaxWidth()
                             )
                         }
@@ -446,233 +358,112 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                 }
             }
             
-            // 5G Settings
+            // VoWiFi Card
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(
-                        containerColor = Color(0x33E91E63)
+                        containerColor = when (vowifiEnabled) {
+                            true -> Color(0xFFE8F5E9)
+                            false -> Color(0xFFFFF3E0)
+                            null -> MaterialTheme.colorScheme.surface
+                        }
                     )
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.Default.SignalCellularOff,
-                                contentDescription = null,
-                                tint = Color(0xFFE91E63),
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "5G Settings",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        
-                        Text(
-                            "Disable 5G to prevent modem crashes on Pixel 6 series",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        
-                        Button(
-                            onClick = { 
-                                viewModel.disable5G(context)
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFFE91E63)
-                            )
-                        ) {
-                            Icon(Icons.Default.Cancel, null)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Disable 5G Completely")
-                        }
-                        
-                        disable5GStatus?.let { status ->
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                status,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (status.contains("success", ignoreCase = true)) 
-                                    Color(0xFF4CAF50) 
-                                else 
-                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.WifiCalling,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(24.dp),
+                                    tint = when (vowifiEnabled) {
+                                        true -> Color(0xFF4CAF50)
+                                        false -> Color(0xFFFF9800)
+                                        null -> Color.Gray
+                                    }
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    "VoWiFi / Wi-Fi Calling",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Switch(
+                                checked = vowifiEnabled == true,
+                                onCheckedChange = { viewModel.toggleVoWiFi() },
+                                enabled = hasRoot == true
                             )
                         }
-                    }
-                }
-            }
-            
-            // ULTRA 3G DISABLE - САМЫЙ ЖЁСТКИЙ МЕТОД!
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0x33FF5722)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.Block,
-                                contentDescription = null,
-                                tint = Color(0xFFFF5722),
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "⚠️ ULTRA DISABLE 3G/WCDMA",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(Modifier.height(8.dp))
                         
-                        Text(
-                            "САМЫЙ ЖЁСТКИЙ МЕТОД для Pixel 6 с Exynos модемом!",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Color(0xFFFF5722),
-                            fontWeight = FontWeight.Bold
-                        )
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "• Отключает CS Fallback (звонки не упадут в 3G)\n" +
-                            "• Блокирует WCDMA scanning полностью\n" +
-                            "• wcdma_supported = 0 (модем не будет искать 3G)\n" +
-                            "• Форсирует IMS/VoLTE\n" +
-                            "⚠️ ТРЕБУЕТСЯ ПЕРЕЗАГРУЗКА!",
+                            "Принудительное включение Wi-Fi Calling через carrier config override",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(Modifier.height(12.dp))
                         
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Button(
-                                onClick = { viewModel.ultraDisable3G(context) },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFFFF5722)
-                                )
-                            ) {
-                                Icon(Icons.Default.Block, null)
-                                Spacer(Modifier.width(4.dp))
-                                Text("ULTRA\nDISABLE", maxLines = 2, fontSize = 12.sp)
-                            }
-                            
-                            OutlinedButton(
-                                onClick = { viewModel.check3GDisableStatus(context) },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Info, null)
-                                Spacer(Modifier.width(4.dp))
-                                Text("Check\nStatus", maxLines = 2, fontSize = 12.sp)
-                            }
-                        }
-                        
-                        ultra3GStatus?.let { status ->
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                status,
-                                style = MaterialTheme.typography.bodySmall,
-                                fontFamily = FontFamily.Monospace,
-                                color = if (status.contains("✓")) 
-                                    Color(0xFF4CAF50) 
-                                else if (status.contains("✗"))
-                                    Color(0xFFF44336)
-                                else 
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-            
-            // VoLTE Settings
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color(0x334CAF50)
-                    )
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Default.PhoneInTalk,
-                                contentDescription = null,
-                                tint = Color(0xFF4CAF50),
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                "VoLTE Settings",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
                         Spacer(Modifier.height(8.dp))
                         
-                        Text(
-                            "Enable VoLTE (Voice over LTE) for HD calls",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(Modifier.height(12.dp))
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        OutlinedButton(
+                            onClick = { viewModel.checkVoWiFiStatus() },
+                            enabled = hasRoot == true,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Button(
-                                onClick = { viewModel.enableVoLTE(context) },
-                                modifier = Modifier.weight(1f),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = Color(0xFF4CAF50)
-                                )
+                            Icon(Icons.Default.Info, null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text("Проверить статус")
+                        }
+                        
+                        if (vowifiStatus.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = Color(0xFF1A1A1A)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(Icons.Default.Check, null)
-                                Spacer(Modifier.width(4.dp))
-                                Text("Enable VoLTE")
-                            }
-                            
-                            OutlinedButton(
-                                onClick = { viewModel.checkVoLTEStatus(context) },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Icon(Icons.Default.Info, null)
-                                Spacer(Modifier.width(4.dp))
-                                Text("Check Status")
+                                SelectionContainer {
+                                    Text(
+                                        vowifiStatus,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = Color(0xFF4CAF50),
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                }
                             }
                         }
                         
-                        volteStatus?.let { status ->
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                status,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (status.contains("✓")) 
-                                    Color(0xFF4CAF50) 
-                                else if (status.contains("✗"))
-                                    Color(0xFFF44336)
-                                else 
-                                    MaterialTheme.colorScheme.onSurfaceVariant
+                        Spacer(Modifier.height(8.dp))
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.secondaryContainer
                             )
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    "Что делает:",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    "• persist.dbg.wfc_avail_ovr=1\n" +
+                                    "• persist.vendor.radio.wfc_enabled=1\n" +
+                                    "• persist.vendor.ims.wfc_enabled=1\n" +
+                                    "• settings global wfc_ims_enabled=1\n" +
+                                    "• Включает VoLTE (нужен для VoWiFi)\n" +
+                                    "• Override carrier_config\n\n" +
+                                    "⚠️ Требуется перезагрузка!",
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         }
                     }
                 }
@@ -712,12 +503,9 @@ fun MainScreen(viewModel: MainViewModel = viewModel()) {
                             """
 1. Grant root access when prompted
 2. Set up GitHub token for auto-upload
-3. Press START before traveling
-4. App will AUTO-UPLOAD logs when network drops
-5. Check Gist URL after problem occurs
-
-Logs are compact (~30KB per upload).
-Monitoring can run for days.
+3. Start monitoring before traveling
+4. When problem occurs - collect logs
+5. Share the Gist URL for analysis
                             """.trimIndent(),
                             style = MaterialTheme.typography.bodySmall
                         )

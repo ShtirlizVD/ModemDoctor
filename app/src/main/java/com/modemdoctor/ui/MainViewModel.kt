@@ -50,26 +50,13 @@ class MainViewModel : ViewModel() {
     val events: StateFlow<List<ModemMonitorService.MonitorEvent>> = _events.asStateFlow()
     
     private val _networkLossCount = MutableStateFlow(0)
-    val networkLossCount: StateFlow<Int> = _networkLossCount.asStateFlow()
+    val networkLossCount: StateFlow<Int> = _networkLossCount
     
-    private val _autoUploadStatus = MutableStateFlow<String?>(null)
-    val autoUploadStatus: StateFlow<String?> = _autoUploadStatus.asStateFlow()
+    private val _vowifiStatus = MutableStateFlow("")
+    val vowifiStatus: StateFlow<String> = _vowifiStatus
     
-    private val _disable5GStatus = MutableStateFlow<String?>(null)
-    val disable5GStatus: StateFlow<String?> = _disable5GStatus.asStateFlow()
-    
-    private val _volteStatus = MutableStateFlow<String?>(null)
-    val volteStatus: StateFlow<String?> = _volteStatus.asStateFlow()
-    
-    private val _ultra3GStatus = MutableStateFlow<String?>(null)
-    val ultra3GStatus: StateFlow<String?> = _ultra3GStatus.asStateFlow()
-    
-    // Battery charge limit
-    private val _chargeLimitEnabled = MutableStateFlow(false)
-    val chargeLimitEnabled: StateFlow<Boolean> = _chargeLimitEnabled.asStateFlow()
-    
-    private val _batteryMessage = MutableStateFlow<String?>(null)
-    val batteryMessage: StateFlow<String?> = _batteryMessage.asStateFlow()
+    private val _vowifiEnabled = MutableStateFlow<Boolean?>(null)
+    val vowifiEnabled: StateFlow<Boolean?> = _vowifiEnabled.asStateFlow()
     
     sealed class UiState {
         object Initial : UiState()
@@ -90,47 +77,6 @@ class MainViewModel : ViewModel() {
                 RootShell.checkRoot()
             }
             _uiState.value = UiState.Ready
-            
-            // Проверяем статус ограничения зарядки
-            checkChargeLimitStatus()
-        }
-    }
-    
-    /**
-     * Проверка статуса ограничения зарядки
-     */
-    fun checkChargeLimitStatus() {
-        viewModelScope.launch {
-            val (enabled, _) = withContext(Dispatchers.IO) {
-                RootShell.getChargeLimitStatus()
-            }
-            _chargeLimitEnabled.value = enabled
-        }
-    }
-    
-    /**
-     * Включение/выключение ограничения зарядки до 80%
-     */
-    fun toggleChargeLimit(enabled: Boolean) {
-        viewModelScope.launch {
-            _batteryMessage.value = if (enabled) "Включаем ограничение..." else "Отключаем ограничение..."
-            
-            val (success, message) = withContext(Dispatchers.IO) {
-                if (enabled) {
-                    RootShell.setChargeLimit80()
-                } else {
-                    RootShell.disableChargeLimit()
-                }
-            }
-            
-            if (success) {
-                _chargeLimitEnabled.value = enabled
-            }
-            _batteryMessage.value = message
-            
-            // Очищаем сообщение через 5 секунд
-            kotlinx.coroutines.delay(5000)
-            _batteryMessage.value = null
         }
     }
     
@@ -172,11 +118,6 @@ class MainViewModel : ViewModel() {
             viewModelScope.launch {
                 ModemMonitorService.networkLossCount.collect { count ->
                     _networkLossCount.value = count
-                }
-            }
-            viewModelScope.launch {
-                ModemMonitorService.autoUploadStatus.collect { status ->
-                    _autoUploadStatus.value = status
                 }
             }
         }
@@ -288,7 +229,9 @@ class MainViewModel : ViewModel() {
      */
     fun checkPermissions(context: Context): List<String> {
         val requiredPermissions = mutableListOf(
-            Manifest.permission.READ_PHONE_STATE
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
         )
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -301,91 +244,152 @@ class MainViewModel : ViewModel() {
     }
     
     /**
-     * Отключение 5G функций
+     * Проверка текущего статуса VoWiFi
      */
-    fun disable5G(context: Context) {
-        viewModelScope.launch {
-            _disable5GStatus.value = "Disabling 5G..."
+    fun checkVoWiFiStatus() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _vowifiStatus.value = "Проверяем статус VoWiFi..."
             
-            val (success, message) = withContext(Dispatchers.IO) {
-                RootShell.disable5G()
-            }
+            val commands = listOf(
+                "getprop persist.dbg.wfc_avail_ovr",
+                "getprop persist.vendor.radio.wfc_enabled",
+                "getprop persist.vendor.ims.wfc_enabled",
+                "getprop persist.vendor.ims.volte_enabled",
+                "settings get global wfc_ims_enabled",
+                "settings get global wfc_ims_mode",
+                "settings get global wfc_ims_roaming_enabled",
+                "dumpsys carrier_config | grep -iE 'wfc|wifi_calling|carrier_wfc_ims_available'",
+                "dumpsys imsphone | head -30",
+                "getprop gsm.sim.operator.numeric"
+            )
             
-            _disable5GStatus.value = if (success) {
-                "✓ 5G disabled successfully!\nModem should be more stable now."
-            } else {
-                "✗ Failed: ${message.take(100)}"
-            }
+            val (_, output) = RootShell.execute(commands)
+            _vowifiStatus.value = output
+            
+            // Проверяем включено ли
+            val wfcAvail = output.contains("1")
+            _vowifiEnabled.value = wfcAvail
         }
     }
     
     /**
-     * Включение VoLTE навсегда
+     * Принудительное включение VoWiFi
      */
-    fun enableVoLTE(context: Context) {
-        viewModelScope.launch {
-            _volteStatus.value = "Enabling VoLTE..."
+    fun enableVoWiFi() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _vowifiStatus.value = "Включаем VoWiFi принудительно..."
             
-            val (success, message) = withContext(Dispatchers.IO) {
-                RootShell.enableVoLTE()
+            // Получаем MCC+MNC SIM карты для проверки оператора
+            val (_, simInfo) = RootShell.execute("getprop gsm.sim.operator.numeric")
+            val simOperator = simInfo.trim()
+            
+            val commands = listOf(
+                // WFC availability override - самое важное!
+                "resetprop -p persist.dbg.wfc_avail_ovr 1",
+                "resetprop -p persist.dbg.wfc_allow_over_cellular 1",
+                
+                // Vendor radio свойства
+                "resetprop -p persist.vendor.radio.wfc_enabled 1",
+                "resetprop -p persist.vendor.radio.wfc_support 1",
+                
+                // IMS свойства
+                "resetprop -p persist.vendor.ims.wfc_enabled 1",
+                "resetprop -p persist.vendor.ims.volte_enabled 1",
+                "resetprop -p persist.vendor.ims.vt_enabled 1",
+                "resetprop -p persist.vendor.ims.rcs_enabled 1",
+                
+                // Глобальные настройки
+                "settings put global wfc_ims_enabled 1",
+                "settings put global wfc_ims_mode 1",  // 1 = Wi-Fi preferred
+                "settings put global wfc_ims_roaming_enabled 1",
+                
+                // VoLTE must be enabled for VoWiFi
+                "settings put global volte_ims_enabled 1",
+                "settings put global vt_ims_enabled 1",
+                
+                // Carrier config overrides
+                "settings put global carrier_config carrier_wfc_ims_available_bool true",
+                "settings put global carrier_config wfc_mode_support_v2 3", // 3 = both modes
+                
+                // Дополнительно для Pixel
+                "resetprop -p persist.dbg.volte_avail_ovr 1",
+                "resetprop -p persist.dbg.vt_avail_ovr 1",
+                
+                // Перезапуск telephony (мягкий, без перезагрузки)
+                "am broadcast -a com.android.internal.telephony.PROVISIONED",
+                "killall -HUP com.android.phone 2>/dev/null || true"
+            )
+            
+            val (exitCode, output) = RootShell.execute(commands)
+            
+            // Проверяем результат
+            val verifyCommands = listOf(
+                "getprop persist.dbg.wfc_avail_ovr",
+                "getprop persist.vendor.radio.wfc_enabled",
+                "getprop persist.vendor.ims.wfc_enabled",
+                "settings get global wfc_ims_enabled",
+                "settings get global wfc_ims_mode"
+            )
+            val (_, verify) = RootShell.execute(verifyCommands)
+            
+            _vowifiStatus.value = buildString {
+                appendLine("=== ПРИМЕНЕНО ===")
+                appendLine("SIM оператор: $simOperator")
+                appendLine()
+                appendLine("=== ТЕКУЩИЕ ЗНАЧЕНИЯ ===")
+                appendLine(verify)
+                appendLine()
+                appendLine("=== РЕКОМЕНДАЦИЯ ===")
+                if (simOperator.isNotEmpty()) {
+                    appendLine("SIM: $simOperator")
+                    when (simOperator.take(3)) {
+                        "250" -> appendLine("Россия: МТС/Мегафон/Билайн/Tele2")
+                        "255" -> appendLine("Украина")
+                        "257" -> appendLine("Беларусь")
+                        else -> appendLine("MCC: ${simOperator.take(3)}")
+                    }
+                }
+                appendLine()
+                appendLine("⚠️ Требуется перезагрузка!")
+                appendLine("После перезагрузки проверьте:")
+                appendLine("  Settings → Network → Wi-Fi Calling")
+                appendLine("  *#*#4636#*#* → Phone info → IMS status")
             }
             
-            _volteStatus.value = if (success) {
-                "✓ VoLTE enabled!\nRestart phone to apply fully."
-            } else {
-                "✗ Failed: ${message.take(100)}"
-            }
+            _vowifiEnabled.value = true
         }
     }
     
     /**
-     * Проверка статуса VoLTE
+     * Отключение VoWiFi
      */
-    fun checkVoLTEStatus(context: Context) {
-        viewModelScope.launch {
-            _volteStatus.value = "Checking VoLTE status..."
+    fun disableVoWiFi() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _vowifiStatus.value = "Отключаем VoWiFi..."
             
-            val status = withContext(Dispatchers.IO) {
-                RootShell.checkVoLTEStatus()
-            }
+            val commands = listOf(
+                "resetprop -p persist.dbg.wfc_avail_ovr 0",
+                "resetprop -p persist.vendor.radio.wfc_enabled 0",
+                "resetprop -p persist.vendor.ims.wfc_enabled 0",
+                "settings put global wfc_ims_enabled 0",
+                "settings put global wfc_ims_mode 0"
+            )
             
-            val raw = status["raw"] ?: "No data"
-            _volteStatus.value = "VoLTE Status:\n${raw.take(200)}"
+            RootShell.execute(commands)
+            
+            _vowifiStatus.value = "VoWiFi отключен. Требуется перезагрузка."
+            _vowifiEnabled.value = false
         }
     }
     
     /**
-     * АГРЕССИВНОЕ отключение 3G/WCDMA для Pixel 6 с Exynos модемом
+     * Переключатель VoWiFi
      */
-    fun ultraDisable3G(context: Context) {
-        viewModelScope.launch {
-            _ultra3GStatus.value = "Executing ULTRA disable 3G..."
-            
-            val (success, message) = withContext(Dispatchers.IO) {
-                RootShell.ultraDisable3G()
-            }
-            
-            _ultra3GStatus.value = if (success) {
-                "✓ 3G/WCDMA DISABLED!\n${message.take(300)}"
-            } else {
-                "✗ Failed: ${message.take(200)}"
-            }
-        }
-    }
-    
-    /**
-     * Проверка статуса отключения 3G
-     */
-    fun check3GDisableStatus(context: Context) {
-        viewModelScope.launch {
-            _ultra3GStatus.value = "Checking 3G disable status..."
-            
-            val status = withContext(Dispatchers.IO) {
-                RootShell.check3GDisableStatus()
-            }
-            
-            val raw = status["raw"] ?: "No data"
-            _ultra3GStatus.value = "3G Status:\n${raw.take(300)}"
+    fun toggleVoWiFi() {
+        if (_vowifiEnabled.value == true) {
+            disableVoWiFi()
+        } else {
+            enableVoWiFi()
         }
     }
 }
